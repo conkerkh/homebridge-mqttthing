@@ -154,6 +154,9 @@ function makeThing( log, accessoryConfig, api ) {
 
             const c_mySetContext = { mqttthing: '---my-set-context--' };
 
+            // WeakSet to track characteristics being updated from MQTT (feedback loop prevention)
+            const updatingFromMqtt = new WeakSet();
+
             // constructor for fakegato-history options
             function HistoryOptions( isEventSensor = false ) {
                 // maximum size of stored data points
@@ -277,11 +280,11 @@ function makeThing( log, accessoryConfig, api ) {
                 return state.online === false;
             }
 
-            function handleGetStateCallback( callback, value ) {
+            async function handleGetState( value ) {
                 if( isOffline() ) {
-                    callback( 'offline' );
+                    throw new Error( 'offline' );
                 } else {
-                    callback( null, value );
+                    return value;
                 }
             }
 
@@ -341,7 +344,12 @@ function makeThing( log, accessoryConfig, api ) {
 
             function setCharacteristic( charac, value ) {
                 if( isValid( charac, value ) ) {
-                    charac.setValue( value, undefined, c_mySetContext );
+                    updatingFromMqtt.add( charac );
+                    try {
+                        charac.updateValue( value );
+                    } finally {
+                        updatingFromMqtt.delete( charac );
+                    }
                 }
             }
 
@@ -358,16 +366,15 @@ function makeThing( log, accessoryConfig, api ) {
 
                 // set up characteristic
                 var charac = service.getCharacteristic( characteristic );
-                charac.on( 'get', function( callback ) {
-                    handleGetStateCallback( callback, state[ property ] );
+                charac.onGet( async () => {
+                    return await handleGetState( state[ property ] );
                 } );
                 if( setTopic ) {
-                    charac.on( 'set', function( value, callback, context ) {
-                        if( context !== c_mySetContext ) {
+                    charac.onSet( async ( value ) => {
+                        if( !updatingFromMqtt.has( charac ) ) {
                             state[ property ] = value;
                             publish( getOnOffPubValue( value ) );
                         }
-                        callback();
 
                         // optionally turn off after timeout
                         if( value && turnOffAfterms ) {
@@ -461,26 +468,25 @@ function makeThing( log, accessoryConfig, api ) {
                 }
 
                 // get/set
-                charac.on( 'get', function( callback ) {
-                    handleGetStateCallback( callback, state[ property ] );
+                charac.onGet( async () => {
+                    return await handleGetState( state[ property ] );
                 } );
 
-                let onSet = function( value, context ) {
-                    if( context !== c_mySetContext ) {
+                let onSet = function( value ) {
+                    if( !updatingFromMqtt.has( charac ) ) {
                         state[ property ] = value;
                         if( setTopic ) {
                             mqttPublish( setTopic, property, value );
                         }
                     }
                     if( options && options.onSet ) {
-                        options.onSet( value, context );
+                        options.onSet( value );
                     }
                 };
 
                 if( setTopic || ( options && options.onSet ) ) {
-                    charac.on( 'set', function( value, callback, context ) {
-                        onSet( value, context );
-                        callback();
+                    charac.onSet( async ( value ) => {
+                        onSet( value );
                     } );
                 }
                 if( initialValue ) {
@@ -513,21 +519,20 @@ function makeThing( log, accessoryConfig, api ) {
 
                 setCharacteristic( charac, defaultValue );
 
-                charac.on( 'get', function( callback ) {
+                charac.onGet( async () => {
                     let valReturned = state[ property ];
                     if( !isValid( charac, valReturned ) ) {
                         valReturned = defaultValue;
                     }
-                    handleGetStateCallback( callback, valReturned );
+                    return await handleGetState( valReturned );
                 } );
 
                 if( characteristicChanged ) {
-                    charac.on( 'set', function( value, callback, context ) {
-                        if( context !== c_mySetContext ) {
+                    charac.onSet( async ( value ) => {
+                        if( !updatingFromMqtt.has( charac ) ) {
                             state[ property ] = value;
                             characteristicChanged();
                         }
-                        callback();
                     } );
 
                     if( adaptiveEventName ) {
@@ -1202,16 +1207,15 @@ function makeThing( log, accessoryConfig, api ) {
                 state[ property ] = initialValue;
 
                 // get/set
-                charac.on( 'get', function( callback ) {
-                    handleGetStateCallback( callback, state[ property ] );
+                charac.onGet( async () => {
+                    return await handleGetState( state[ property ] );
                 } );
                 if( setTopic ) {
-                    charac.on( 'set', function( value, callback, context ) {
-                        if( context !== c_mySetContext ) {
+                    charac.onSet( async ( value ) => {
+                        if( !updatingFromMqtt.has( charac ) ) {
                             state[ property ] = value;
                             mqttPublish( setTopic, property, value );
                         }
-                        callback();
                     } );
                 }
                 if( initialValue ) {
@@ -1236,16 +1240,15 @@ function makeThing( log, accessoryConfig, api ) {
 
                 // set up characteristic
                 var charac = service.getCharacteristic( characteristic );
-                charac.on( 'get', function( callback ) {
-                    handleGetStateCallback( callback, state[ property ] );
+                charac.onGet( async () => {
+                    return await handleGetState( state[ property ] );
                 } );
                 if( setTopic ) {
-                    charac.on( 'set', function( value, callback, context ) {
-                        if( context !== c_mySetContext ) {
+                    charac.onSet( async ( value ) => {
+                        if( !updatingFromMqtt.has( charac ) ) {
                             state[ property ] = value;
                             mqttPublish( setTopic, property, value );
                         }
-                        callback();
                     } );
                 }
 
@@ -1275,15 +1278,15 @@ function makeThing( log, accessoryConfig, api ) {
 
                 // Homekit get
                 if( !eventOnly ) {
-                    charac.on( 'get', function( callback ) {
-                        handleGetStateCallback( callback, state[ property ] );
+                    charac.onGet( async () => {
+                        return await handleGetState( state[ property ] );
                     } );
                 }
 
                 // Homekit set
                 if( setTopic ) {
-                    charac.on( 'set', function( value, callback, context ) {
-                        if( context !== c_mySetContext ) {
+                    charac.onSet( async ( value ) => {
+                        if( !updatingFromMqtt.has( charac ) ) {
 
                             if( typeof value === "boolean" ) {
                                 value = value ? 1 : 0;
@@ -1296,7 +1299,6 @@ function makeThing( log, accessoryConfig, api ) {
                             }
                             raiseEvent( property );
                         }
-                        callback();
                     } );
                 }
 
@@ -3506,7 +3508,7 @@ function makeThing( log, accessoryConfig, api ) {
                 }
                 services = [service];
             } else if( configType == 'battery' ) {
-                service = new Service.BatteryService( name );
+                service = new Service.Battery( name );
                 addBatteryCharacteristics( service );
             } else {
                 log( "ERROR: Unrecognized type: " + configType );
@@ -3542,7 +3544,7 @@ function makeThing( log, accessoryConfig, api ) {
                 if( config.topics.getBatteryLevel || config.topics.getChargingState ||
                     ( config.topics.getStatusLowBattery && !service.testCharacteristic( Characteristic.StatusLowBattery ) ) ) {
                     // also create battery service
-                    let batsvc = new Service.BatteryService( name + '-battery' );
+                    let batsvc = new Service.Battery( name + '-battery' );
                     addBatteryCharacteristics( batsvc );
                     services.push( batsvc );
                 }
