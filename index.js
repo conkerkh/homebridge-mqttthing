@@ -55,13 +55,47 @@ function makeThing( log, accessoryConfig, api ) {
         mqttlib.publish( ctx, topic, property, message );
     }
 
+    //
+    // Resource Management for Cleanup
+    //
+
+    // Track all timers for cleanup
+    let allTimers = new Set();
+    
+    // Track cleanup tasks
+    let cleanupTasks = [];
+    
+    // Track event listeners for cleanup
+    let eventListeners = [];
+
+    // Managed setTimeout wrapper
+    function managedSetTimeout( func, timeout ) {
+        const timerId = setTimeout( function() {
+            allTimers.delete( timerId );
+            func();
+        }, timeout );
+        allTimers.add( timerId );
+        return timerId;
+    }
+
+    // Add tracked event listener
+    function addTrackedListener( emitter, event, handler ) {
+        emitter.addListener( event, handler );
+        eventListeners.push( { emitter, event, handler } );
+    }
+
+    // Register cleanup task
+    function registerCleanup( task ) {
+        cleanupTasks.push( task );
+    }
+
     // Delayed one-shot function call
     let throttledCallTimers = {};
     let throttledCall = function( func, identifier, timeout ) {
         if( throttledCallTimers[ identifier ] ) {
             clearTimeout( throttledCallTimers[ identifier ] );
         }
-        throttledCallTimers[ identifier ] = setTimeout( function() {
+        throttledCallTimers[ identifier ] = managedSetTimeout( function() {
             throttledCallTimers[ identifier ] = null;
             func();
         }, timeout );
@@ -381,7 +415,7 @@ function makeThing( log, accessoryConfig, api ) {
                             if( autoOffTimer ) {
                                 clearTimeout( autoOffTimer );
                             }
-                            autoOffTimer = setTimeout( function() {
+                            autoOffTimer = managedSetTimeout( function() {
                                 autoOffTimer = null;
 
                                 state[ property ] = false;
@@ -417,7 +451,7 @@ function makeThing( log, accessoryConfig, api ) {
                             if( autoResetStateTimer ) {
                                 clearTimeout( autoResetStateTimer );
                             }
-                            autoResetStateTimer = setTimeout( function() {
+                            autoResetStateTimer = managedSetTimeout( function() {
                                 autoResetStateTimer = null;
                                 state[ property ] = false;
                                 setCharacteristic( charac, mapValueForHomebridge( false, mapValueFunc ) );
@@ -536,7 +570,7 @@ function makeThing( log, accessoryConfig, api ) {
                     } );
 
                     if( adaptiveEventName ) {
-                        adaptiveLightingEmitter.addListener( adaptiveEventName, ( value ) => {
+                        addTrackedListener( adaptiveLightingEmitter, adaptiveEventName, ( value ) => {
                             state[ property ] = value;
                             characteristicChanged();
                         } );
@@ -1410,7 +1444,7 @@ function makeThing( log, accessoryConfig, api ) {
                     onMqtt: () => disableAdaptiveLighting( 'hue' )
                 } );
                 if( supportAdaptiveLighting() ) {
-                    adaptiveLightingEmitter.addListener( 'hue', ( value ) => char.onSet( value ) );
+                    addTrackedListener( adaptiveLightingEmitter, 'hue', ( value ) => char.onSet( value ) );
                 }
             }
 
@@ -1420,7 +1454,7 @@ function makeThing( log, accessoryConfig, api ) {
                     onMqtt: () => disableAdaptiveLighting( 'saturation' )
                 } );
                 if( supportAdaptiveLighting() ) {
-                    adaptiveLightingEmitter.addListener( 'saturation', ( value ) => char.onSet( value ) );
+                    addTrackedListener( adaptiveLightingEmitter, 'saturation', ( value ) => char.onSet( value ) );
                 }
             }
 
@@ -1476,7 +1510,7 @@ function makeThing( log, accessoryConfig, api ) {
             function characteristic_LastActivation( historySvc, service ) {
                 service.addOptionalCharacteristic( Eve.Characteristics.LastActivation ); // to avoid warnings
                 // get lastActivation time from history data (check 5s later to make sure the history is loaded)
-                setTimeout( function() {
+                managedSetTimeout( function() {
                     if( historySvc.lastEntry && historySvc.memorySize ) {
                         let entry = historySvc.history[ historySvc.lastEntry % historySvc.memorySize ];
                         if( entry && entry.hasOwnProperty( 'time' ) ) {
@@ -1521,7 +1555,7 @@ function makeThing( log, accessoryConfig, api ) {
                         if( mergeInterval > 0 ) {
                             // log off-event later (with original time),
                             // if there is no new on-event in the given time.
-                            historyMergeTimer = setTimeout( function() {
+                            historyMergeTimer = managedSetTimeout( function() {
                                 historyMergeTimer = null;
                                 historySvc.addEntry( logEntry );
                             }, mergeInterval );
@@ -1909,7 +1943,7 @@ function makeThing( log, accessoryConfig, api ) {
 
                 // property-changed handler
                 let propChangedHandler = events.targetDoorState = function() {
-                    setTimeout( () => {
+                    managedSetTimeout( () => {
                         setCharacteristic( charac, mapValueFunc( state[ property ] ) );
                     }, 1000 );
                 };
@@ -2674,7 +2708,7 @@ function makeThing( log, accessoryConfig, api ) {
                         characInUse.on( 'change', function( obj ) {
                             if( obj.newValue == Characteristic.InUse.IN_USE ) {
                                 state[ property_durationEndTime ] = Math.floor( Date.now() / 1000 ) + state[ property_setDuration ];
-                                durationTimer = setTimeout( timerFunc, state[ property_setDuration ] * 1000 );
+                                durationTimer = managedSetTimeout( timerFunc, state[ property_setDuration ] * 1000 );
                             } else {
                                 if( durationTimer ) {
                                     clearTimeout( durationTimer );
@@ -2712,7 +2746,7 @@ function makeThing( log, accessoryConfig, api ) {
                         if( durationTimer ) {
                             // update timer
                             clearTimeout( durationTimer );
-                            durationTimer = setTimeout( timerFunc, getRemainingDuration() * 1000 );
+                            durationTimer = managedSetTimeout( timerFunc, getRemainingDuration() * 1000 );
                         }
                     } );
                 }
@@ -2726,7 +2760,7 @@ function makeThing( log, accessoryConfig, api ) {
                         if( durationTimer ) {
                             // update timer
                             clearTimeout( durationTimer );
-                            durationTimer = setTimeout( timerFunc, remainingDuration * 1000 );
+                            durationTimer = managedSetTimeout( timerFunc, remainingDuration * 1000 );
                         }
                     } );
                 }
@@ -3616,6 +3650,57 @@ function makeThing( log, accessoryConfig, api ) {
     // Return controllers
     thing.getControllers = function() {
         return controllers;
+    };
+
+    // Shutdown/Cleanup Handler
+    thing.onShutdown = function() {
+        log( 'Shutting down MQTT Thing: ' + accessoryConfig.name );
+        
+        // Clear all managed timers
+        for( let timerId of allTimers ) {
+            clearTimeout( timerId );
+        }
+        allTimers.clear();
+        
+        // Clear throttled call timers
+        for( let identifier in throttledCallTimers ) {
+            if( throttledCallTimers[ identifier ] ) {
+                clearTimeout( throttledCallTimers[ identifier ] );
+            }
+        }
+        throttledCallTimers = {};
+        
+        // Remove all tracked event listeners
+        for( let { emitter, event, handler } of eventListeners ) {
+            try {
+                emitter.removeListener( event, handler );
+            } catch( ex ) {
+                log.debug( 'Error removing listener: ' + ex );
+            }
+        }
+        eventListeners = [];
+        
+        // Close MQTT connection
+        if( ctx && ctx.mqttClient ) {
+            try {
+                ctx.mqttClient.end( true );
+                log.debug( 'MQTT client closed' );
+            } catch( ex ) {
+                log.error( 'Error closing MQTT client: ' + ex );
+            }
+        }
+        
+        // Run registered cleanup tasks
+        for( let task of cleanupTasks ) {
+            try {
+                task();
+            } catch( ex ) {
+                log.error( 'Cleanup task error: ' + ex );
+            }
+        }
+        cleanupTasks = [];
+        
+        log( 'Shutdown complete for: ' + accessoryConfig.name );
     };
 
     return thing;
