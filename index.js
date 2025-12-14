@@ -316,7 +316,8 @@ function makeThing( log, accessoryConfig, api ) {
 
             async function handleGetState( value ) {
                 if( isOffline() ) {
-                    throw new Error( 'offline' );
+                    // Throw a proper HAP error when the device is offline
+                    throw new HapStatusError(HAPStatus.SERVICE_COMMUNICATION_FAILURE);
                 } else {
                     return value;
                 }
