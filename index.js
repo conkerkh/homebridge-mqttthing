@@ -15,7 +15,7 @@ var path = require( "path" );
 var mqttlib = require( './libs/mqttlib' );
 const EventEmitter = require( 'events' );
 
-var Service, Characteristic, Eve, HistoryService;
+var Service, Characteristic, Eve, HistoryService, HapStatusError, HAPStatus;
 var homebridgePath;
 
 function makeThing( log, accessoryConfig, api ) {
@@ -3711,6 +3711,8 @@ function makeThing( log, accessoryConfig, api ) {
 module.exports = function( homebridge ) {
     Service = homebridge.hap.Service;
     Characteristic = homebridge.hap.Characteristic;
+    HapStatusError = homebridge.hap.HapStatusError;
+    HAPStatus = homebridge.hap.HAPStatus;
     Eve = new homebridgeLib.EveHomeKitTypes( homebridge );
     HistoryService = fakegatoHistory( homebridge );
     homebridgePath = homebridge.user.storagePath();
