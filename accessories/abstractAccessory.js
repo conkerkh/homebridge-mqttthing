@@ -41,16 +41,11 @@ class AbstractAccessory {
         this.eventListeners = [];
         this.cleanupTasks = [];
         
-        // MQTT context
+        // MQTT context (codec is stored here by mqttlib)
         this.mqttCtx = null;
         
         // Characteristic helper
         this.charHelper = new CharacteristicHelper(this);
-        
-        // Codec support
-        this.codec = null;
-        this.codecEncoder = null;
-        this.codecDecoder = null;
         
         // Service list for this accessory
         this.servicesList = [];
@@ -110,23 +105,16 @@ class AbstractAccessory {
     /**
      * Load codec if specified in config
      * Note: mqttlib.init() handles codec loading internally with proper notify/publish functions
-     * We just need to get references to the encoder/decoder from the context
+     * The codec is stored in this.mqttCtx.codec and used by mqttlib.publish/subscribe
      */
     async loadCodec() {
         if (!this.config.codec) return;
         
-        // mqttlib.init() already loaded the codec - get it from context
+        // mqttlib.init() already loaded the codec - just verify it's there
         if (this.mqttCtx && this.mqttCtx.codec) {
-            this.codec = this.mqttCtx.codec;
-            
-            if (typeof this.codec.encode === 'function') {
-                this.codecEncoder = this.codec.encode.bind(this.codec);
-            }
-            if (typeof this.codec.decode === 'function') {
-                this.codecDecoder = this.codec.decode.bind(this.codec);
-            }
-            
-            this.log.debug(`Codec loaded from mqttlib context`);
+            this.log.debug(`Codec '${this.config.codec}' loaded by mqttlib`);
+        } else {
+            this.log.warn(`Codec '${this.config.codec}' specified but not loaded`);
         }
     }
 
@@ -225,12 +213,17 @@ class AbstractAccessory {
      * MQTT Publish wrapper
      */
     mqttPublish(topic, property, message) {
-        if (!topic) return;
-        
-        // Apply codec encoding if available
-        if (this.codecEncoder) {
-            message = this.codecEncoder(property, message);
+        if (!topic) {
+            this.log.debug(`mqttPublish called with no topic for property '${property}'`);
+            return;
         }
+        if (message === null || message === undefined) {
+            this.log.debug(`mqttPublish called with null/undefined message for property '${property}'`);
+            return;
+        }
+        
+        // Note: codec encoding is handled by mqttlib.publish internally
+        // Don't encode here to avoid double-encoding
         
         // Apply apply function if configured
         const applyKey = 'apply' + property.charAt(0).toUpperCase() + property.slice(1);
@@ -242,21 +235,11 @@ class AbstractAccessory {
     }
 
     /**
-     * Decode MQTT message using codec
+     * Decode MQTT message - handles JSON extraction
+     * Note: Codec decoding is already done by mqttlib.subscribe
      */
     decodeMessage(property, message) {
         let decoded = message;
-        
-        // Apply codec decoding if available
-        if (this.codecDecoder) {
-            try {
-                decoded = this.codecDecoder(property, message);
-            } catch (ex) {
-                // Codec decode failed - log and use original message
-                this.log.debug(`Codec decode error for property '${property}': ${ex.message}`);
-                decoded = message;
-            }
-        }
         
         // Handle JSON payload with property extraction
         if (typeof decoded === 'string') {

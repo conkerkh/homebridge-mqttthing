@@ -328,14 +328,22 @@ var mqttlib = new function() {
 
     // Publish
     this.publish = function( ctx, topic, property, message ) {
-        let { log, mqttClient, codec } = ctx;
+        let { log, mqttClient, codec, config } = ctx;
         if( ! mqttClient ) {
             log( 'ERROR: Call mqttlib.init() before mqttlib.publish()' );
             return;
         }
 
-        if( message === null || topic === undefined ) {
-            return; // don't publish if message is null or topic is undefined
+        if( message === null || message === undefined || topic === undefined ) {
+            return; // don't publish if message is null/undefined or topic is undefined
+        }
+
+        // Validate property
+        if( property === undefined || property === null ) {
+            if( config.logMqtt ) {
+                log( 'Warning: publish called with undefined property for topic ' + topic );
+            }
+            property = 'unknown';
         }
 
         let extendedTopic = null;
@@ -359,6 +367,9 @@ var mqttlib = new function() {
         }
 
         function publishImpl( finalMessage ) {
+            if( finalMessage === undefined || finalMessage === null ) {
+                return; // don't publish undefined/null
+            }
             optimizedPublish( topic, finalMessage, ctx );
         }
 
@@ -366,9 +377,15 @@ var mqttlib = new function() {
         let codecEncode = getCodecFunction( codec, property, 'encode' );
         if( codecEncode ) {
             // send through codec's encode function
-            let encoded = codecEncode( message, { topic, property, extendedTopic }, publishImpl );
-            if( encoded !== undefined ) {
-                publishImpl( encoded );
+            try {
+                let encoded = codecEncode( message, { topic, property, extendedTopic }, publishImpl );
+                if( encoded !== undefined && encoded !== null ) {
+                    publishImpl( encoded );
+                }
+            } catch( ex ) {
+                log( 'Codec encode error for property [' + property + ']: ' + ex );
+                // fall back to publishing without encoding
+                publishImpl( message );
             }
         } else {
             // publish as-is
