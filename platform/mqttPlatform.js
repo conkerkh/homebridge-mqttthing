@@ -10,6 +10,7 @@
 const homebridgeLib = require('homebridge-lib');
 const fakegatoHistory = require('fakegato-history');
 const { createAccessory, restoreAccessory, isTypeSupported, getSupportedTypes } = require('../accessories');
+const MqttConnectionPool = require('../libs/mqttConnectionPool');
 
 const PLATFORM_NAME = 'mqttthing';
 const PLUGIN_NAME = 'homebridge-mqttthing';
@@ -38,6 +39,9 @@ class MqttPlatform {
         
         // Storage path
         this.homebridgePath = api.user.storagePath();
+        
+        // Initialize MQTT Connection Pool
+        this.mqttPool = new MqttConnectionPool(log, this.config);
         
         // Accessory storage
         this.accessories = new Map(); // UUID -> accessory wrapper
@@ -253,6 +257,11 @@ class MqttPlatform {
         
         this.accessories.clear();
         this.accessoriesByName.clear();
+        
+        // Shutdown MQTT Connection Pool
+        if (this.mqttPool) {
+            this.mqttPool.shutdown();
+        }
         
         this.log.info('All accessories shut down');
     }

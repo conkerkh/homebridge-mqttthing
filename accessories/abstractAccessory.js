@@ -86,33 +86,145 @@ class AbstractAccessory {
 
     /**
      * Initialize MQTT connection
+     * Uses the platform's connection pool for shared connections
      */
     async initMqtt() {
-        this.mqttCtx = {
-            log: this.log,
-            config: this.config,
-            homebridgePath: this.platform.homebridgePath
-        };
-        
         try {
-            mqttlib.init(this.mqttCtx);
+            // Get connection from platform's pool
+            // Pass the full config so pool can auto-detect broker from config.broker or config.url
+            const pooledConnection = this.platform.mqttPool.getConnection(this.config, this.config.name);
+            
+            if (!pooledConnection) {
+                throw new Error('Failed to get MQTT connection from pool');
+            }
+            
+            // Store reference to release later
+            this._pooledBrokerName = pooledConnection.brokerName;
+            
+            // Create MQTT context using the pool's shared resources
+            // The pool's dispatcher is used so message routing works across accessories
+            this.mqttCtx = {
+                log: this.log,
+                config: this.config,
+                homebridgePath: this.platform.homebridgePath,
+                mqttClient: pooledConnection.client,
+                mqttDispatch: pooledConnection.dispatcher,  // Shared per broker
+                propDispatch: {},   // Per-accessory (for codec notifications)
+                brokerName: pooledConnection.brokerName
+            };
+            
+            // Create cache of last-published values for publishing optimization
+            if (this.config.optimizePublishing) {
+                this.mqttCtx.lastPubValues = {};
+            }
+            
+            // Load codec if configured (codec needs the context)
+            this.loadCodecInternal();
+            
+            this.log.debug(`MQTT connection established for ${this.config.name} using broker '${pooledConnection.brokerName}'`);
         } catch (ex) {
             this.log.error(`MQTT initialization failed for ${this.config.name}: ${ex}`);
             throw ex;
         }
     }
+    
+    /**
+     * Internal codec loading - separate from loadCodec to run during init
+     */
+    loadCodecInternal() {
+        if (!this.config.codec) return;
+        
+        const fs = require('fs');
+        const path = require('path');
+        
+        let codecPath = this.config.codec;
+        // if it doesn't start with a '/' (i.e. not fully-qualified)...
+        if (codecPath[0] !== '/') {
+            if (codecPath.substr(codecPath.length - 3) !== '.js') {
+                // no js extension - assume it's an internal codec
+                codecPath = path.join(__dirname, '../codecs/', codecPath + '.js');
+            } else {
+                // relative external codec is relative to homebridge userdata
+                codecPath = path.join(this.mqttCtx.homebridgePath, codecPath);
+            }
+        }
+        
+        if (!fs.existsSync(codecPath)) {
+            this.log.error(`ERROR: Codec file [${codecPath}] does not exist`);
+            return;
+        }
+        
+        this.log(`Loading codec from ${codecPath}`);
+        const codecMod = require(codecPath);
+        
+        if (typeof codecMod.init !== 'function') {
+            this.log.error(`ERROR: No codec initialisation function returned from ${codecPath}`);
+            return;
+        }
+        
+        // Direct publishing function for codec
+        const directPub = (topic, message) => {
+            this.optimizedPublish(topic, message);
+        };
+        
+        // Notification by property for codec
+        const notifyByProp = (property, message) => {
+            const handlers = this.mqttCtx.propDispatch[property];
+            if (handlers) {
+                for (const handler of handlers) {
+                    handler('_prop-' + property, message);
+                }
+            }
+        };
+        
+        // Initialize codec
+        const codec = this.mqttCtx.codec = codecMod.init({
+            log: this.log,
+            config: this.config,
+            publish: directPub,
+            notify: notifyByProp
+        });
+        
+        if (codec) {
+            // encode/decode must be functions
+            if (typeof codec.encode !== 'function') {
+                this.log.warn('No codec encode() function');
+                codec.encode = null;
+            }
+            if (typeof codec.decode !== 'function') {
+                this.log.warn('No codec decode() function');
+                codec.decode = null;
+            }
+        }
+    }
+    
+    /**
+     * Optimized publish - avoids duplicate messages
+     */
+    optimizedPublish(topic, message) {
+        const messageString = message.toString();
+        if (this.config.optimizePublishing && this.mqttCtx.lastPubValues) {
+            if (this.mqttCtx.lastPubValues[topic] === messageString) {
+                return; // optimized - don't publish
+            }
+            this.mqttCtx.lastPubValues[topic] = messageString;
+        }
+        if (this.config.logMqtt) {
+            this.log(`Publishing MQTT: ${topic} = ${messageString}`);
+        }
+        this.mqttCtx.mqttClient.publish(topic, messageString, this.config.mqttPubOptions);
+    }
 
     /**
      * Load codec if specified in config
-     * Note: mqttlib.init() handles codec loading internally with proper notify/publish functions
-     * The codec is stored in this.mqttCtx.codec and used by mqttlib.publish/subscribe
+     * Note: Codec is already loaded by loadCodecInternal() during initMqtt()
+     * This method just verifies it's properly loaded
      */
     async loadCodec() {
         if (!this.config.codec) return;
         
-        // mqttlib.init() already loaded the codec - just verify it's there
         if (this.mqttCtx && this.mqttCtx.codec) {
-            this.log.debug(`Codec '${this.config.codec}' loaded by mqttlib`);
+            this.log.debug(`Codec '${this.config.codec}' loaded successfully`);
         } else {
             this.log.warn(`Codec '${this.config.codec}' specified but not loaded`);
         }
@@ -316,13 +428,13 @@ class AbstractAccessory {
         }
         this.eventListeners = [];
         
-        // Close MQTT connection
-        if (this.mqttCtx && this.mqttCtx.mqttClient) {
+        // Release MQTT connection back to pool (don't close it directly)
+        if (this._pooledBrokerName && this.platform && this.platform.mqttPool) {
             try {
-                this.mqttCtx.mqttClient.end(true);
-                this.log.debug('MQTT client closed');
+                this.platform.mqttPool.releaseConnection(this._pooledBrokerName, this.config.name);
+                this.log.debug('MQTT connection released to pool');
             } catch (ex) {
-                this.log.error(`Error closing MQTT client: ${ex}`);
+                this.log.error(`Error releasing MQTT connection: ${ex}`);
             }
         }
         
