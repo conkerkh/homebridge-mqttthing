@@ -74,10 +74,10 @@ function init( params ) {
     let target_state="?", target_time=Date.now(), current_state="?",
         alt_trigger_state=null, AltTopic = null, msg = null,
            relay_Arm_Topic = "/rcp",
-        relay_Disarm_Topic = relay_Arm_Topic
+        relay_Disarm_Topic = relay_Arm_Topic,
         ArmTopic = "/status/input:" + config.AMAX.getState.Armed.id,
-        TrigTopic = "/status/input:" + config.AMAX.getState.Triggered.id,
-           AltTopic="/status/input:" + config.AMAX.getState.AltTriggered.id;
+        TrigTopic = "/status/input:" + config.AMAX.getState.Triggered.id;
+        AltTopic="/status/input:" + config.AMAX.getState.AltTriggered.id;
 
     // topics definition 
     if (config.ShellyGen == 1) {
@@ -193,10 +193,10 @@ function init( params ) {
                 // Send a pulse
                 if (config.ShellyGen == 1) {
                     publish(relay, config.AMAX.setState.Armed.ACTIVE);
-    //				publish(Switch, config.AMAX.setState.Disarmed.ACTIVE);
+    //				publish(relay, config.AMAX.setState.Disarmed.ACTIVE);
                 }
                 else {
-                    publish(Switch, JSON.stringify({'id': 123, src: 'user_1',
+                    publish(relay, JSON.stringify({'id': 123, src: 'user_1',
                         method: 'Switch.Set', params: {'id': relay_id, 'on': config.AMAX.setState.Armed.ACTIVE}}));
   //      			setTimeout(publish(Switch, JSON.stringify({id: 123, src: 'user_1',
   //      				method: 'Switch.Set', params: {id: relay_ID, on: config.AMAX.setState.Disarmed.ACTIVE}})),100);
