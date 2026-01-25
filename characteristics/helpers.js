@@ -119,10 +119,12 @@ class CharacteristicHelper {
 
         const { initialValue = 0, minValue, maxValue, minStep } = options;
 
-        // Set props if provided
-        if (isDefined(minValue)) charac.setProps({ minValue });
-        if (isDefined(maxValue)) charac.setProps({ maxValue });
-        if (isDefined(minStep)) charac.setProps({ minStep });
+        // Set props if provided (single call to avoid overwriting)
+        const props = {};
+        if (isDefined(minValue)) props.minValue = minValue;
+        if (isDefined(maxValue)) props.maxValue = maxValue;
+        if (isDefined(minStep)) props.minStep = minStep;
+        if (Object.keys(props).length > 0) charac.setProps(props);
 
         // Initialize state
         this.state[property] = initialValue;
@@ -175,10 +177,12 @@ class CharacteristicHelper {
 
         const { minValue, maxValue, minStep } = options;
 
-        // Set props if provided
-        if (isDefined(minValue)) charac.setProps({ minValue });
-        if (isDefined(maxValue)) charac.setProps({ maxValue });
-        if (isDefined(minStep)) charac.setProps({ minStep });
+        // Set props if provided (single call to avoid overwriting)
+        const props = {};
+        if (isDefined(minValue)) props.minValue = minValue;
+        if (isDefined(maxValue)) props.maxValue = maxValue;
+        if (isDefined(minStep)) props.minStep = minStep;
+        if (Object.keys(props).length > 0) charac.setProps(props);
 
         // Initialize state
         this.state[property] = initialValue;
