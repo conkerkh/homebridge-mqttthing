@@ -23,6 +23,7 @@ const windowCovering = require('./windowCovering');
 const lockMechanism = require('./lockMechanism');
 const securitySystem = require('./securitySystem');
 const humiditySensor = require('./humiditySensor');
+const lightSensor = require('./lightSensor');
 const leakSensor = require('./leakSensor');
 const occupancySensor = require('./occupancySensor');
 const smokeSensor = require('./smokeSensor');
@@ -44,6 +45,7 @@ const accessoryWrappers = [
     lockMechanism,
     securitySystem,
     humiditySensor,
+    lightSensor,
     leakSensor,
     occupancySensor,
     smokeSensor,
@@ -80,6 +82,8 @@ const typeAliases = {
     'security': ACCESSORY_TYPES.SECURITY_SYSTEM,
     'alarm': ACCESSORY_TYPES.SECURITY_SYSTEM,
     'smoke': ACCESSORY_TYPES.SMOKE_SENSOR,
+    'lightsensor': ACCESSORY_TYPES.LIGHT_SENSOR,
+    'lux': ACCESSORY_TYPES.LIGHT_SENSOR,
     'leak': ACCESSORY_TYPES.LEAK_SENSOR,
     'water': ACCESSORY_TYPES.LEAK_SENSOR,
     'occupancy': ACCESSORY_TYPES.OCCUPANCY_SENSOR,
