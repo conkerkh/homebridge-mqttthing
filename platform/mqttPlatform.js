@@ -7,7 +7,6 @@
 
 'use strict';
 
-const homebridgeLib = require('homebridge-lib');
 const fakegatoHistory = require('fakegato-history');
 const { createAccessory, restoreAccessory, isTypeSupported, getSupportedTypes } = require('../accessories');
 const MqttConnectionPool = require('../libs/mqttConnectionPool');
@@ -30,12 +29,6 @@ class MqttPlatform {
         // Store HAP references
         this.Service = api.hap.Service;
         this.Characteristic = api.hap.Characteristic;
-        
-        // Initialize Eve characteristics
-        this.Eve = new homebridgeLib.EveHomeKitTypes(api);
-        
-        // Initialize History service
-        this.HistoryService = fakegatoHistory(api);
         
         // Storage path
         this.homebridgePath = api.user.storagePath();

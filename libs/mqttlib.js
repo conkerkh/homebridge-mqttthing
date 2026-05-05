@@ -6,7 +6,7 @@
 const mqtt = require( "mqtt" );
 const path = require( "path" );
 const fs = require( "fs" );
-const jsonpath = require( "jsonpath" );
+const { JSONPath } = require( "jsonpath-plus" );
 
 var mqttlib = new function() {
 
@@ -306,7 +306,7 @@ var mqttlib = new function() {
             const lastHandler = handler;
             handler = function( intopic, message ) {
                 const json = JSON.parse( message );
-                const values = jsonpath.query( json, jsonpathQuery );
+                const values = JSONPath( { path: jsonpathQuery, json } );
                 const output = values.shift();
                 if( config.logMqtt ) {
                     log( `jsonpath ${jsonpathQuery} decoded message to [${output}]` );
