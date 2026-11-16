@@ -115,20 +115,58 @@ class MqttPlatform {
             this.api.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, toRemove);
         }
         
-        // Build a set of configured accessory names for comparison
-        const configNames = new Set(this.accessoryConfigs.map(c => c.name));
-        
-        // Initialize cached accessories that match current config
-        for (const [uuid, entry] of this.accessories) {
-            if (entry.needsInit && configNames.has(entry.config.name)) {
-                await this.initCachedAccessory(uuid, entry);
-            } else if (entry.needsInit) {
-                // Cached accessory not in config anymore - remove it
-                this.log.info(`Removing accessory no longer in config: ${entry.config.name}`);
-                this.api.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [entry.accessory]);
-                this.accessories.delete(uuid);
-                this.accessoriesByName.delete(entry.config.name);
+        // Index current config.json entries by name (first entry wins, matching
+        // the duplicate-name handling in the creation loop below)
+        const configsByName = new Map();
+        for (const accessoryConfig of this.accessoryConfigs) {
+            if (accessoryConfig && accessoryConfig.name && !configsByName.has(accessoryConfig.name)) {
+                configsByName.set(accessoryConfig.name, accessoryConfig);
             }
+        }
+        
+        // Initialize cached accessories that match current config. The current
+        // config.json entry always wins over the copy cached in accessory.context,
+        // otherwise edits to existing accessories would be silently ignored.
+        const updated = [];
+        for (const [uuid, entry] of this.accessories) {
+            if (!entry.needsInit) {
+                continue;
+            }
+            
+            const cachedName = entry.config.name;
+            const currentConfig = configsByName.get(cachedName);
+            
+            if (!currentConfig) {
+                // Cached accessory not in config anymore - remove it
+                this.log.info(`Removing accessory no longer in config: ${cachedName}`);
+                this.removeCachedAccessory(uuid, entry);
+                continue;
+            }
+            
+            if (!this.isSameType(entry.config.type, currentConfig.type)) {
+                // Type changed (or is now invalid) - services differ, so drop the
+                // cached accessory; the loop below recreates it from config (same
+                // name, so same UUID) or logs why it can't.
+                this.log.info(`Accessory "${cachedName}" type changed from '${entry.config.type}' to '${currentConfig.type}', recreating`);
+                this.removeCachedAccessory(uuid, entry);
+                continue;
+            }
+            
+            if (JSON.stringify(entry.config) !== JSON.stringify(currentConfig)) {
+                this.log.info(`Configuration changed for cached accessory "${cachedName}", applying config.json`);
+                updated.push(entry.accessory);
+            }
+            
+            entry.config = currentConfig;
+            entry.type = currentConfig.type;
+            entry.accessory.context.mqttthing = currentConfig;
+            await this.initCachedAccessory(uuid, entry);
+        }
+        
+        // Persist refreshed context for accessories that are still registered
+        const stillRegistered = updated.filter(acc => this.accessories.has(acc.UUID));
+        if (stillRegistered.length > 0) {
+            this.api.updatePlatformAccessories(stillRegistered);
         }
         
         // Process each accessory configuration - create only new ones
@@ -142,6 +180,28 @@ class MqttPlatform {
         }
         
         this.log.info(`Discovery complete. ${this.accessories.size} accessories active.`);
+    }
+
+    /**
+     * Check whether two configured accessory types are the same
+     * (case-insensitive, subtype suffix such as 'lightbulb-RGB' included)
+     */
+    isSameType(a, b) {
+        if (typeof a !== 'string' || typeof b !== 'string') {
+            return false;
+        }
+        return a.toLowerCase() === b.toLowerCase();
+    }
+
+    /**
+     * Unregister a cached accessory and forget it
+     */
+    removeCachedAccessory(uuid, entry) {
+        this.api.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [entry.accessory]);
+        this.accessories.delete(uuid);
+        if (this.accessoriesByName.get(entry.config.name) === entry) {
+            this.accessoriesByName.delete(entry.config.name);
+        }
     }
 
     /**
