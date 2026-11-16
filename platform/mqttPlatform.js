@@ -14,6 +14,13 @@ const MqttConnectionPool = require('../libs/mqttConnectionPool');
 const PLATFORM_NAME = 'mqttthing';
 const PLUGIN_NAME = 'homebridge-mqttthing';
 
+/**
+ * Deep copy of an accessory config (config.json data is plain JSON)
+ */
+function cloneConfig(config) {
+    return JSON.parse(JSON.stringify(config));
+}
+
 class MqttPlatform {
     /**
      * Constructor
@@ -157,9 +164,12 @@ class MqttPlatform {
                 updated.push(entry.accessory);
             }
             
-            entry.config = currentConfig;
+            // Cache an untouched copy and give the accessory its own working copy:
+            // codecs add topics etc. to the config they get, and caching that would
+            // make every restart look like a config change.
+            entry.config = cloneConfig(currentConfig);
             entry.type = currentConfig.type;
-            entry.accessory.context.mqttthing = currentConfig;
+            entry.accessory.context.mqttthing = cloneConfig(currentConfig);
             await this.initCachedAccessory(uuid, entry);
         }
         
@@ -262,11 +272,12 @@ class MqttPlatform {
         
         const accessory = new this.api.platformAccessory(config.name, uuid);
         
-        // Store configuration in context
-        accessory.context.mqttthing = config;
-        
+        // Cache an untouched copy and give the accessory its own working copy
+        // (codecs modify the config they get)
+        accessory.context.mqttthing = cloneConfig(config);
+
         try {
-            const wrapper = createAccessory(config.type, this, accessory, config);
+            const wrapper = createAccessory(config.type, this, accessory, cloneConfig(config));
             
             if (wrapper) {
                 await wrapper.init();
