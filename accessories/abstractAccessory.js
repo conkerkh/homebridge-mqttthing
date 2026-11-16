@@ -72,7 +72,10 @@ class AbstractAccessory {
         
         // Create services
         this.createServices();
-        
+
+        // Battery service for any accessory type with a battery level topic
+        this.addBatteryService();
+
         // Set up online state monitoring
         if (this.config.topics?.getOnline) {
             this.setupOnlineMonitoring();
@@ -484,6 +487,47 @@ class AbstractAccessory {
                 null, topics.getStatusLowBattery, { initialValue: 0 }
             );
         }
+    }
+
+    /**
+     * HomeKit Battery service (the Home app shows battery level only from this service),
+     * added when getBatteryLevel is configured.
+     */
+    addBatteryService() {
+        const topics = this.config.topics || {};
+        if (!topics.getBatteryLevel) return;
+
+        const service = this.getOrCreateService(this.Service.Battery, `${this.config.name} Battery`, 'battery');
+
+        this.charHelper.integerCharacteristic(
+            service, 'batteryLevel', this.Characteristic.BatteryLevel,
+            null, topics.getBatteryLevel, { initialValue: 100, minValue: 0, maxValue: 100 }
+        );
+
+        // StatusLowBattery is required on the Battery service. If the main service already
+        // binds it, mirror that characteristic: binding the same property twice would leave
+        // the second characteristic stale (state is deduplicated per property).
+        const lowBattery = service.getCharacteristic(this.Characteristic.StatusLowBattery);
+        if (this.state.statusLowBattery !== undefined) {
+            const source = this.servicesList
+                .filter((s) => s !== service && s.testCharacteristic(this.Characteristic.StatusLowBattery))
+                .map((s) => s.getCharacteristic(this.Characteristic.StatusLowBattery))[0];
+            lowBattery.updateValue(this.state.statusLowBattery);
+            lowBattery.on('get', (callback) => this.charHelper.respond('statusLowBattery', callback));
+            if (source) {
+                source.on('change', ({ newValue }) => lowBattery.updateValue(newValue));
+            }
+        } else if (topics.getStatusLowBattery) {
+            this.charHelper.integerCharacteristic(
+                service, 'statusLowBattery', this.Characteristic.StatusLowBattery,
+                null, topics.getStatusLowBattery, { initialValue: 0 }
+            );
+        } else {
+            lowBattery.updateValue(0);
+        }
+
+        service.getCharacteristic(this.Characteristic.ChargingState)
+            .updateValue(this.Characteristic.ChargingState.NOT_CHARGEABLE);
     }
 
     /**

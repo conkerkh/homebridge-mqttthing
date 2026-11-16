@@ -21,6 +21,21 @@ class CharacteristicHelper {
     }
 
     /**
+     * Answer a HomeKit read: the current value, or "No Response" while the
+     * accessory's getOnline topic says the device is offline
+     */
+    respond(property, callback) {
+        if (this.state.online === false) {
+            this.log.debug(`Getting '${property}': device offline`);
+            const { HapStatusError, HAPStatus } = this.accessory.api.hap;
+            callback(new HapStatusError(HAPStatus.SERVICE_COMMUNICATION_FAILURE));
+            return;
+        }
+        this.log.debug(`Getting '${property}': ${this.state[property]}`);
+        callback(null, this.state[property]);
+    }
+
+    /**
      * Add a characteristic with getter callback
      */
     addCharacteristic(service, property, characteristic, initialValue, setCallback) {
@@ -29,10 +44,7 @@ class CharacteristicHelper {
         
         this.state[property] = initialValue;
 
-        charac.on('get', (callback) => {
-            this.log.debug(`Getting '${property}': ${this.state[property]}`);
-            callback(null, this.state[property]);
-        });
+        charac.on('get', (callback) => this.respond(property, callback));
 
         if (setCallback) {
             charac.on('set', (value, callback, context) => {
@@ -59,11 +71,7 @@ class CharacteristicHelper {
         this.state[property] = mapFunc ? mapFunc(initialValue) : initialValue;
 
         // Getter
-        charac.on('get', (callback) => {
-            const value = this.state[property];
-            this.log.debug(`Getting '${property}': ${value}`);
-            callback(null, value);
-        });
+        charac.on('get', (callback) => this.respond(property, callback));
 
         // Setter (if setTopic provided)
         if (setTopic) {
@@ -130,10 +138,7 @@ class CharacteristicHelper {
         this.state[property] = initialValue;
 
         // Getter
-        charac.on('get', (callback) => {
-            this.log.debug(`Getting '${property}': ${this.state[property]}`);
-            callback(null, this.state[property]);
-        });
+        charac.on('get', (callback) => this.respond(property, callback));
 
         // Setter
         if (setTopic) {
@@ -188,10 +193,7 @@ class CharacteristicHelper {
         this.state[property] = initialValue;
 
         // Getter
-        charac.on('get', (callback) => {
-            this.log.debug(`Getting '${property}': ${this.state[property]}`);
-            callback(null, this.state[property]);
-        });
+        charac.on('get', (callback) => this.respond(property, callback));
 
         // Setter
         if (setTopic) {
@@ -238,10 +240,7 @@ class CharacteristicHelper {
 
         // Getter
         if (!noInitialGet) {
-            charac.on('get', (callback) => {
-                this.log.debug(`Getting '${property}': ${this.state[property]}`);
-                callback(null, this.state[property]);
-            });
+            charac.on('get', (callback) => this.respond(property, callback));
         }
 
         // Setter
@@ -301,10 +300,7 @@ class CharacteristicHelper {
         this.state[property] = initialValue;
 
         // Getter
-        charac.on('get', (callback) => {
-            this.log.debug(`Getting '${property}': ${this.state[property]}`);
-            callback(null, this.state[property]);
-        });
+        charac.on('get', (callback) => this.respond(property, callback));
 
         // Setter
         if (setTopic) {
